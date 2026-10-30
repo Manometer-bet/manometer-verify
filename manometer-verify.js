@@ -111,6 +111,7 @@ function pruefePrices(b, R) {
   for (const e of b.eintraege) {
     if (!e.wertung) continue;
     const q = e.quittung, w = e.wertung, was = "prices " + q.rid;
+    if (w.gesperrtBisAnstoss) { if (e.markt) R.schlecht(was + ": market row present although marked as released at kick-off"); else R.hinweis(was + ": market data is released at kick-off, it can be checked then"); continue; }
     if (e.markt) {
       if (!SNAP.pruefeBeweis(e.markt)) { R.schlecht(was + ": market row proof invalid"); continue; }
       if (e.markt.wurzel !== q.snapshot.root || e.markt.n !== q.snapshot.n || e.markt.snapshot !== q.snapshot.id) { R.schlecht(was + ": market row is not from the snapshot in the signed receipt"); continue; }
@@ -131,7 +132,8 @@ function pruefePrices(b, R) {
     if (e.schluss) {
       if (e.ankerSchluss) { if (!ankerOk(b, e.schluss, e.ankerSchluss, R, was + " closing")) continue; }
       else R.hinweis(was + ": closing line not anchored yet");
-      if (e.markt && (e.schluss.k !== e.markt.zeile.k || e.schluss.ko !== e.markt.zeile.ko)) { R.schlecht(was + ": closing line belongs to another game"); continue; }
+      // Gleiches Spiel: dieselbe Pinnacle-Nummer (wie der Schiedsrichter) oder derselbe Schlüssel und Anstoß. Der Schlüssel hängt an den Namen und kann sich bis zum Anstoß ändern.
+      if (e.markt) { const z = e.markt.zeile, s = e.schluss, gleichePe = z.pe != null && s.pe != null && String(z.pe) === String(s.pe); if (!gleichePe && (s.k !== z.k || s.ko !== z.ko)) { R.schlecht(was + ": closing line belongs to another game"); continue; } }
       const c = w.best ? BEW.clvPct(w.best.odds, BEW.schlussFair(e.schluss, w.auswahl)) : null;
       if (!gleichZahl(c, w.clvPct, 0.001)) { R.schlecht(was + ": CLV " + w.clvPct + " ≠ recomputed " + c); continue; }
       if (w.executable && c != null) clvs.push(c);

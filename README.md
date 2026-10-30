@@ -20,6 +20,8 @@ node manometer-verify.js all src_you.bundle.json
 | `results`  | Each result is anchored and belongs to the same Pinnacle event; WIN/LOSS/PUSH/half results are recomputed from the full-time score; paper profit and yield are recomputed. |
 | `all`      | All of the above plus the bundle root (Merkle root over all entries — nothing can be removed or added unnoticed). |
 
+Market rows, fair prices and best prices are released at kick-off. A bundle downloaded earlier shows only whether a proposal was executable; download it again after kick-off to check its prices.
+
 `--offline` skips the independent network lookups (drand, Bitcoin) and relies on the data in the bundle.
 Exit code 0 = everything checked out, 1 = at least one mismatch, 2 = unreadable input.
 
