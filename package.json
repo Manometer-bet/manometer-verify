@@ -1,0 +1,19 @@
+{
+  "name": "manometer-verify",
+  "version": "1.0.0",
+  "description": "Check a Manometer scorecard bundle (receipts, time-lock seals, market proofs, CLV, results) without trusting Manometer's servers.",
+  "bin": {
+    "manometer-verify": "manometer-verify.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "tlock-js": "0.9.0"
+  },
+  "license": "Apache-2.0",
+  "repository": "github:brauler9/manometer-verify",
+  "scripts": {
+    "test": "node --check manometer-verify.js && node --check lib/kanon.js && node --check lib/merkle.js && node --check lib/drand.js && node --check lib/siegel.js && node --check lib/ots.js && node --check lib/schluessel.js && node --check lib/schnappschuss.js && node --check lib/bewertung.js && node --check lib/feed-core.js"
+  }
+}
