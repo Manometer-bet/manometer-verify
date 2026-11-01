@@ -1,6 +1,6 @@
 {
   "name": "manometer-verify",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Check a Manometer scorecard bundle (receipts, time-lock seals, market proofs, CLV, results) without trusting Manometer's servers.",
   "bin": {
     "manometer-verify": "manometer-verify.js"

@@ -38,7 +38,3 @@ Exit code 0 = everything checked out, 1 = at least one mismatch, 2 = unreadable 
 ## Licence
 
 Apache-2.0. The Manometer name and logo are not covered by the licence.
-
-## Status
-
-Private until release 1. See https://manometer.bet/open-source.html.

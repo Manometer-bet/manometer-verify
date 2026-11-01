@@ -118,9 +118,14 @@ function pruefePrices(b, R) {
       const a = auswahlVon(e);
       if (a && w.auswahl && kanon(a) !== kanon(w.auswahl)) { R.schlecht(was + ": selection mapping differs"); continue; }
       if (a) {
-        const pr = BEW.preise(e.markt.zeile, a);
+        const pr = BEW.preise(e.markt.zeile, a, e.vorschlag && e.vorschlag.live === true ? { frischAb: q.receivedTs - BEW.LIVE_FRISCH_MS } : null);
         let best = null; for (const bk of netz) { const v = pr.buecher[bk]; if (v > 1 && (!best || v > best.odds)) best = { book: bk, odds: v }; }
         if (!gleichZahl(pr.fair, w.fairAtReceipt, 1e-9)) { R.schlecht(was + ": fair at receipt " + pr.fair + " ≠ " + w.fairAtReceipt); continue; }
+        if (e.vorschlag && e.vorschlag.live === true && e.markt.zeile.fs === "smk" && e.markt.zeile.f) {   // Rückfall auf SMK ohne Marge: aus der Marktzeile nachrechenbar
+          const smk = (e.markt.zeile.b || []).find((x) => x[0] === "sportmarket"), s = smk ? [smk[1], smk[2], smk[3]].reduce((t, v) => t + (v > 1 ? 1 / v : 0), 0) : 0;
+          const passt = smk && [0, 1, 2].every((i) => { const v = smk[i + 1], f = e.markt.zeile.f[i]; return v > 1 ? Math.abs(f - v * s) < 0.002 : f == null; });
+          if (!passt) { R.schlecht(was + ": fair marked as Sportmarket does not follow from the Sportmarket price in the market row"); continue; }
+        }
         if (!!best !== !!w.best || (best && (best.odds !== w.best.odds))) { R.schlecht(was + ": best executable price differs"); continue; }
         if (w.executable && best && best.odds < Number(e.vorschlag.minOdds)) { R.schlecht(was + ": counted executable below the source's minOdds"); continue; }
       }
@@ -134,7 +139,7 @@ function pruefePrices(b, R) {
       else R.hinweis(was + ": closing line not anchored yet");
       // Gleiches Spiel: dieselbe Pinnacle-Nummer (wie der Schiedsrichter) oder derselbe Schlüssel und Anstoß. Der Schlüssel hängt an den Namen und kann sich bis zum Anstoß ändern.
       if (e.markt) { const z = e.markt.zeile, s = e.schluss, gleichePe = z.pe != null && s.pe != null && String(z.pe) === String(s.pe); if (!gleichePe && (s.k !== z.k || s.ko !== z.ko)) { R.schlecht(was + ": closing line belongs to another game"); continue; } }
-      const c = w.best ? BEW.clvPct(w.best.odds, BEW.schlussFair(e.schluss, w.auswahl)) : null;
+      const c = w.best ? BEW.clvPct(w.best.odds, BEW.schlussFair(e.schluss, w.auswahl, e.markt && e.markt.zeile)) : null;
       if (!gleichZahl(c, w.clvPct, 0.001)) { R.schlecht(was + ": CLV " + w.clvPct + " ≠ recomputed " + c); continue; }
       if (w.executable && c != null) clvs.push(c);
     }
@@ -177,10 +182,22 @@ function pruefeWurzel(b, R) {
   if (w !== b.wurzel) R.schlecht("bundle root " + b.wurzel + " ≠ recomputed " + w); else { R.gut(); R.hinweis("bundle root sha256:" + w); }
 }
 
+// Öffentliche Summen gegen das Bündel: Eingetragen sind alle Vorschläge, deren Anstoß bis zum Stichtag lag. Wurzel = RFC 6962 über die Quittungsnummern, geordnet nach Eingang.
+function endeVon(x) { const q = x.quittung || {}, z = x.markt && x.markt.zeile, p = x.vorschlag && x.vorschlag.eventIdentity; return Math.max((z && z.ko) || (p && Number(p.startsTs)) || (q.drand && q.drand.opensTs) || q.receivedTs, q.receivedTs); }
+function pruefeSummen(b, R, opts) {
+  const stand = Number(opts.stand), liste = b.eintraege.filter((x) => endeVon(x) <= stand).sort((p, q) => p.quittung.receivedTs - q.quittung.receivedTs);
+  if (opts.n != null) { if (liste.length === Number(opts.n)) R.ok++; else R.fehler.push("totals: " + liste.length + " proposals up to the cut-off, the scorecard says " + opts.n); }
+  const w = liste.length ? merkle.baum(liste.map((x) => x.quittung.rid)).wurzel : null;
+  if (w === (opts.root || null)) R.ok++; else R.fehler.push("totals: receipt root " + w + " differs from the published root " + opts.root);
+  const ausf = liste.filter((x) => x.wertung && x.wertung.executable), clv = ausf.filter((x) => x.wertung.clvPct != null), ab = ausf.filter((x) => x.wertung.gewinn != null);
+  const r2 = (v) => Math.round(v * 100) / 100;
+  R.hinweise.push("totals up to " + new Date(stand).toISOString().slice(0, 16) + " UTC: " + liste.length + " proposals, " + ausf.length + " executable" + (clv.length ? ", avg CLV " + r2(clv.reduce((s, x) => s + x.wertung.clvPct, 0) / clv.length) + " %, close-beat " + r2(clv.filter((x) => x.wertung.clvPct > 0).length / clv.length * 100) + " %" : "") + (ab.length ? ", paper yield " + r2(ab.reduce((s, x) => s + x.wertung.gewinn, 0) / ab.length * 100) + " %" : ""));
+}
+
 async function main() {
   const was = process.argv[2], datei = process.argv[3];
-  if (!["receipts", "seals", "prices", "results", "all"].includes(was) || !datei) {
-    console.error("usage: manometer-verify <receipts|seals|prices|results|all> <bundle.json> [--offline] [--esplora URL]"); process.exit(2);
+  if (!["receipts", "seals", "prices", "results", "all", "totals"].includes(was) || !datei || (was === "totals" && !argWert("--stand"))) {
+    console.error("usage: manometer-verify <receipts|seals|prices|results|all> <bundle.json> [--offline] [--esplora URL]\n       manometer-verify totals <bundle.json> --stand <ms> --root <hex> [--n N]"); process.exit(2);
   }
   let b; try { b = JSON.parse(fs.readFileSync(datei, "utf8")); } catch (e) { console.error("cannot read bundle: " + e.message); process.exit(2); }
   if (!b || b.typ !== "manometer.scorecard-bundle" || !Array.isArray(b.eintraege)) { console.error("not a Manometer scorecard bundle"); process.exit(2); }
@@ -190,6 +207,7 @@ async function main() {
   if (was === "prices" || was === "all") pruefePrices(b, R);
   if (was === "results" || was === "all") pruefeResults(b, R);
   if (was === "all") pruefeWurzel(b, R);
+  if (was === "totals") pruefeSummen(b, R, { stand: argWert("--stand"), root: argWert("--root"), n: argWert("--n") });
   console.log("source " + b.sourceId + " · " + b.eintraege.length + " proposals · referee key " + (b.referee && b.referee.keyId));
   for (const h of R.hinweise) console.log("  · " + h);
   for (const f of R.fehler) console.log("  ✗ " + f);
@@ -197,4 +215,4 @@ async function main() {
   process.exit(R.fehler.length ? 1 : 0);
 }
 if (require.main === module) main().catch((e) => { console.error(e.stack || e.message); process.exit(2); });
-module.exports = { pruefeReceipts, pruefeSeals, pruefePrices, pruefeResults, pruefeWurzel, bericht, ridVon };
+module.exports = { pruefeReceipts, pruefeSeals, pruefePrices, pruefeResults, pruefeWurzel, pruefeSummen, bericht, ridVon };
